@@ -1,0 +1,47 @@
+__pycache__/
+*.pyc
+.venv/
+.uv-cache/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local artifacts
+out/
+*.demixer
+tests/fixtures/*.wav
+tests/fixtures/*.mp3
+tests/fixtures/*.flac
+!tests/fixtures/README.md
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Isolated worker venvs (numpy 2.x / TF / MT3 etc.)
+.venv-*/
+.mt3_checkpoints/
+
+# Vendored third-party engines — fetched locally, not redistributed.
+# BTC chord model: clone jayg996/BTC-ISMIR19 into third_party/BTC (see README).
+/third_party/
+
+# Fetched third-party reference annotations (run tests/groundtruth/fetch_isophonics.sh)
+/tests/groundtruth/isophonics/
+
+# Internal planning / strategy docs (kept local)
+/docs/
+
+# Research spikes / scratch eval harnesses (not part of the shipped package)
+/scripts/spike_*.py
+
+# Pipeline audit output (local)
+/audit/
