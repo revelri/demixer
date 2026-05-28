@@ -111,6 +111,16 @@ def _build_parser() -> argparse.ArgumentParser:
              "triads-only in-env (default: %(default)s)",
     )
     proc.add_argument(
+        "--midi-hint",
+        metavar="PATH|auto",
+        default=None,
+        help="treat a ground-truth MIDI as authoritative for tempo + time "
+             "signature, bypassing audio-side beat tracking. 'auto' looks for "
+             "a sibling .mid/.MID next to the input file. Useful for MIDI-"
+             "rendered corpora (e.g. game music) where the audio is a synth "
+             "rendering of a known MIDI",
+    )
+    proc.add_argument(
         "--compact-archive",
         action="store_true",
         help="when zipping the .demixer archive, drop the loose stems/ subtree "
@@ -198,8 +208,24 @@ def cmd_process(args: argparse.Namespace) -> int:
     key_estimate = None
     chords = None
     if "analyze" not in skip:
-        log.info("estimating tempo + beats + downbeats")
-        tempo_beats = tb_mod.estimate(audio)
+        midi_hint_path: Path | None = None
+        if args.midi_hint == "auto":
+            midi_hint_path = tb_mod.find_sibling_midi(src)
+            if midi_hint_path is None:
+                log.info("--midi-hint auto: no sibling .mid found next to %s", src.name)
+        elif args.midi_hint:
+            midi_hint_path = Path(args.midi_hint).expanduser().resolve()
+            if not midi_hint_path.exists():
+                log.warning("--midi-hint %s: file not found; falling back to beat tracking",
+                            midi_hint_path)
+                midi_hint_path = None
+
+        if midi_hint_path is not None:
+            log.info("tempo from ground-truth MIDI: %s", midi_hint_path.name)
+            tempo_beats = tb_mod.from_midi(midi_hint_path, audio_duration_s=audio.duration_s)
+        else:
+            log.info("estimating tempo + beats + downbeats")
+            tempo_beats = tb_mod.estimate(audio)
         log.info(
             "tempo=%.2f BPM (%s), %d beats, %d downbeats (~%d beats/bar), confidence=%.2f",
             tempo_beats.tempo_bpm, tempo_beats.method,

@@ -103,6 +103,43 @@ def test_beats_per_bar_defaults_to_four_without_downbeats() -> None:
     assert _beats_per_bar(beats, np.array([0.0])) == 4  # <2 downbeats → common-time
 
 
+def test_find_sibling_midi(tmp_path) -> None:
+    from demixer.core.analysis.tempo_beats import find_sibling_midi
+    audio = tmp_path / "QUESTION.flac"
+    audio.write_bytes(b"fake")
+    assert find_sibling_midi(audio) is None
+    mid = tmp_path / "QUESTION.MID"
+    mid.write_bytes(b"MThd")
+    assert find_sibling_midi(audio) == mid
+
+
+def test_from_midi_uses_authoritative_tempo_and_meter(tmp_path) -> None:
+    """A ground-truth MIDI's tempo and time signature must round-trip into
+    TempoBeats verbatim, not be re-estimated from audio."""
+    import pretty_midi
+    from demixer.core.analysis.tempo_beats import from_midi
+
+    pm = pretty_midi.PrettyMIDI(initial_tempo=92.0)
+    pm.time_signature_changes.append(pretty_midi.TimeSignature(3, 4, 0.0))
+    inst = pretty_midi.Instrument(program=0)
+    inst.notes.append(pretty_midi.Note(velocity=80, pitch=60, start=0.0, end=0.5))
+    pm.instruments.append(inst)
+    mid_path = tmp_path / "song.mid"
+    pm.write(str(mid_path))
+
+    tb = from_midi(mid_path, audio_duration_s=60.0)
+    assert tb.method == "midi-groundtruth"
+    assert tb.reliable is True
+    assert tb.confidence == 1.0
+    assert abs(tb.tempo_bpm - 92.0) < 0.01
+    assert tb.beats_per_bar == 3
+    # Beat grid spans the whole audio
+    assert tb.beat_times_s[0] == 0.0
+    assert tb.beat_times_s[-1] <= 60.0
+    # Downbeats land every 3 beats
+    assert len(tb.downbeat_times_s) == len(tb.beat_times_s[::3])
+
+
 def test_beats_per_bar_one_is_kicked_to_four_and_unreliable(monkeypatch, tmp_path) -> None:
     """beat_this can report a downbeat on every beat for slow/simple loops,
     yielding bpb=1 — which is structurally meaningless downstream. The

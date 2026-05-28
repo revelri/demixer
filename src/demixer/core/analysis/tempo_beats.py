@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import numpy as np
@@ -81,6 +82,73 @@ def _beat_confidence(beat_times: np.ndarray, tempo_bpm: float, duration_s: float
 
     coverage = min(1.0, float(beat_times[-1] - beat_times[0]) / (0.5 * duration_s))
     return float(regularity * plausibility * coverage)
+
+
+def from_midi(midi_path: str | Path, *, audio_duration_s: float) -> TempoBeats:
+    """Build an authoritative TempoBeats from a ground-truth MIDI file.
+
+    Reads the tempo map and time signature from the MIDI and synthesizes a beat
+    grid spanning `audio_duration_s`. Use this when the input is a render of a
+    known MIDI (e.g. game-music corpora, MIDI-rendered demos) — the MIDI's
+    tempo and meter are exact, where audio-side beat tracking is approximate.
+
+    Falls back to a single 120 BPM / 4-4 grid for MIDIs missing tempo events.
+    Confidence is 1.0; method is 'midi-groundtruth'.
+    """
+    import pretty_midi  # lazy — pretty_midi is a heavy import
+
+    pm = pretty_midi.PrettyMIDI(str(Path(midi_path)))
+
+    # Tempo: average BPM weighted by audio duration (handles tempo maps).
+    times, tempi = pm.get_tempo_changes()
+    if len(tempi):
+        if len(tempi) == 1:
+            tempo_bpm = float(tempi[0])
+        else:
+            segment_starts = np.asarray(times, dtype=np.float64)
+            segment_ends = np.append(segment_starts[1:], audio_duration_s)
+            durations = np.clip(segment_ends - segment_starts, 0.0, None)
+            tempo_bpm = float(
+                np.average(np.asarray(tempi, dtype=np.float64),
+                           weights=durations + 1e-9)
+            )
+    else:
+        tempo_bpm = 120.0
+
+    # Time signature: first one in the MIDI wins; default 4/4.
+    if pm.time_signature_changes:
+        ts = pm.time_signature_changes[0]
+        beats_per_bar = int(ts.numerator)
+    else:
+        beats_per_bar = 4
+
+    # Synthesize a beat grid spanning the audio. pretty_midi.get_beats() can be
+    # used, but it stops at the last note — we want coverage of the whole
+    # render, including trailing silence.
+    beat_period = 60.0 / tempo_bpm if tempo_bpm > 0 else 0.5
+    beat_times = np.arange(0.0, audio_duration_s, beat_period, dtype=np.float64)
+    downbeat_times = beat_times[::max(1, beats_per_bar)].copy()
+
+    return TempoBeats(
+        tempo_bpm=tempo_bpm,
+        beat_times_s=beat_times,
+        downbeat_times_s=downbeat_times,
+        beats_per_bar=beats_per_bar,
+        method="midi-groundtruth",
+        confidence=1.0,
+        reliable=True,
+    )
+
+
+def find_sibling_midi(audio_path: str | Path) -> Path | None:
+    """Return a sibling MIDI file matching `audio_path` (same stem, .mid/.midi),
+    or None. Used by the CLI's --midi-hint auto mode."""
+    p = Path(audio_path)
+    for ext in (".mid", ".MID", ".midi", ".MIDI"):
+        candidate = p.with_suffix(ext)
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def estimate(audio: IngestedAudio, *, beats_per_bar_hint: int = 4) -> TempoBeats:
