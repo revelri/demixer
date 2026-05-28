@@ -30,6 +30,8 @@ from demixer.core.project.dawproject import StemTrack as DPStemTrack
 from demixer.core.project.dawproject import write_dawproject
 from demixer.core.project.dragin import StemTrack as DIStemTrack
 from demixer.core.project.dragin import write_dragin
+from demixer.core.project.flstudio import StemTrack as FLStemTrack
+from demixer.core.project.flstudio import write_flp, write_flpianoroll_scripts
 from demixer.core.project.reaper import StemTrack, write_rpp
 from demixer.core.score.musicxml import build_score, write_musicxml
 from demixer.core.score.quantize import quantize_midi
@@ -120,7 +122,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--skip",
         action="append",
         default=[],
-        choices=["separate", "analyze", "transcribe", "zip", "rpp", "dawproject", "dragin", "score"],
+        choices=["separate", "analyze", "transcribe", "zip", "rpp", "dawproject", "dragin",
+                 "flstudio", "score"],
         help="skip a stage (can be passed multiple times; useful during dev)",
     )
     proc.add_argument(
@@ -300,7 +303,7 @@ def cmd_process(args: argparse.Namespace) -> int:
     bundle_dir, _ = write_bundle(out_dir, meta, stem_paths, midi_paths, zip_output=False)
     log.info("bundle dir ready: %s", bundle_dir)
 
-    if stem_paths and ("rpp" not in skip or "dawproject" not in skip):
+    if stem_paths and ("rpp" not in skip or "dawproject" not in skip or "flstudio" not in skip):
         stem_tracks_rpp = [
             StemTrack(name=name, wav_path=wav, midi_path=midi_paths.get(name))
             for name, wav in stem_paths.items()
@@ -329,6 +332,28 @@ def cmd_process(args: argparse.Namespace) -> int:
                 project_name=src.stem,
             )
             log.info("dawproject: %s", dp)
+        if "flstudio" not in skip:
+            fl_tracks = [
+                FLStemTrack(name=name, wav_path=wav, midi_path=midi_paths.get(name))
+                for name, wav in stem_paths.items()
+            ]
+            flp = write_flp(
+                bundle_dir / f"{src.stem}.flp",
+                tracks=fl_tracks,
+                tempo=tempo_beats,
+                key=key_estimate,
+                duration_s=audio.duration_s,
+                project_name=src.stem,
+            )
+            log.info("fl studio project: %s", flp)
+            scripts = write_flpianoroll_scripts(
+                bundle_dir / "flstudio_scripts",
+                tracks=fl_tracks,
+                tempo=tempo_beats,
+                key=key_estimate,
+            )
+            if scripts:
+                log.info("fl studio piano-roll scripts: %d", len(scripts))
         if "dragin" not in skip:
             di_tracks = [
                 DIStemTrack(name=name, wav_path=wav, midi_path=midi_paths.get(name))

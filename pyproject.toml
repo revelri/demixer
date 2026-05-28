@@ -13,6 +13,9 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.6",
     "mypy>=1.10",
+    "pyflp>=2.2.1",   # round-trip parser for the .flp writer tests (not a runtime dep)
+    "pretty_midi",    # MIDI parsing in the DAW exporters
+    "soundfile",      # writes the throwaway WAVs the .flp tests reference
 ]
 gui = [
     "PySide6>=6.6",
