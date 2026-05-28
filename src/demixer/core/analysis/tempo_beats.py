@@ -136,7 +136,7 @@ def _beats_per_bar(beat_times: np.ndarray, downbeat_times: np.ndarray) -> int:
     spacings = spacings[spacings > 0]
     if spacings.size == 0:
         return 4
-    return max(1, int(round(float(np.median(spacings)))))
+    return int(round(float(np.median(spacings))))
 
 
 def _estimate_beat_this(audio: IngestedAudio) -> TempoBeats:
@@ -157,8 +157,24 @@ def _estimate_beat_this(audio: IngestedAudio) -> TempoBeats:
         raise RuntimeError(f"beat_this returned only {len(beat_times)} beats; cannot infer tempo")
 
     tempo_bpm = _tempo_from_beats(beat_times)
-    beats_per_bar = _beats_per_bar(beat_times, downbeat_times)
+    beats_per_bar_raw = _beats_per_bar(beat_times, downbeat_times)
     confidence = _beat_confidence(beat_times, tempo_bpm, audio.duration_s)
+
+    # A meter < 2 is structurally meaningless — every downstream barline,
+    # chord-rhythm boundary, and reharmonization unit inherits it. beat_this
+    # reports bpb=1 when downbeats coincide with every beat (slow/simple loops,
+    # ambient material). Fall back to common time and demote reliability.
+    if beats_per_bar_raw < 2:
+        log.warning(
+            "beat_this inferred beats_per_bar=%d (downbeats on every beat); "
+            "falling back to 4/4 — tempo flagged unreliable",
+            beats_per_bar_raw,
+        )
+        beats_per_bar = 4
+        reliable = False
+    else:
+        beats_per_bar = beats_per_bar_raw
+        reliable = confidence >= _RELIABLE_THRESHOLD
 
     return TempoBeats(
         tempo_bpm=tempo_bpm,
@@ -167,7 +183,7 @@ def _estimate_beat_this(audio: IngestedAudio) -> TempoBeats:
         beats_per_bar=beats_per_bar,
         method="beat_this",
         confidence=confidence,
-        reliable=confidence >= _RELIABLE_THRESHOLD,
+        reliable=reliable,
     )
 
 

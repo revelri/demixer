@@ -103,6 +103,30 @@ def test_beats_per_bar_defaults_to_four_without_downbeats() -> None:
     assert _beats_per_bar(beats, np.array([0.0])) == 4  # <2 downbeats → common-time
 
 
+def test_beats_per_bar_one_is_kicked_to_four_and_unreliable(monkeypatch, tmp_path) -> None:
+    """beat_this can report a downbeat on every beat for slow/simple loops,
+    yielding bpb=1 — which is structurally meaningless downstream. The
+    pipeline must promote this to 4/4 and demote reliability."""
+    from demixer.core.analysis import tempo_beats as tb
+    src = tmp_path / "click.wav"
+    _synth_click_track(src, bpm=100.0, seconds=3.0)
+    audio = ingest(src)
+
+    class _FakeF2B:
+        def __init__(self, *_a, **_kw): pass
+        def __call__(self, _path):
+            beats = np.arange(0, 8) * 0.5
+            return beats, beats.copy()  # downbeat on every beat → raw bpb = 1
+
+    import types
+    fake_mod = types.SimpleNamespace(File2Beats=_FakeF2B)
+    monkeypatch.setitem(__import__("sys").modules, "beat_this.inference", fake_mod)
+
+    result = tb._estimate_beat_this(audio)
+    assert result.beats_per_bar == 4
+    assert result.reliable is False
+
+
 def test_tempo_beats_rejects_bad_hint(tmp_path: Path) -> None:
     src = tmp_path / "click.wav"
     _synth_click_track(src, bpm=100.0, seconds=3.0)
