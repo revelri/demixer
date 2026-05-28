@@ -111,6 +111,17 @@ def _build_parser() -> argparse.ArgumentParser:
              "triads-only in-env (default: %(default)s)",
     )
     proc.add_argument(
+        "--score-renders",
+        nargs="+",
+        choices=["pdf", "mscz", "png", "audio"],
+        default=["pdf", "mscz"],
+        metavar="FMT",
+        help="MuseScore output formats to render (default: pdf mscz). PDF + "
+             "MSCZ alone cover viewing and editing; 'png' duplicates the PDF "
+             "as ~1 MB raster pages and 'audio' synthesizes a low-fi MP3 "
+             "preview — opt in only when you actually need them",
+    )
+    proc.add_argument(
         "--midi-hint",
         metavar="PATH|auto",
         default=None,
@@ -420,7 +431,8 @@ def cmd_process(args: argparse.Namespace) -> int:
     # analysis, and all DAW exports have already shipped.
     if "score" not in skip and midis:
         try:
-            _engrave_score(bundle_dir, midis, tempo_beats, key_estimate, src.stem)
+            _engrave_score(bundle_dir, midis, tempo_beats, key_estimate, src.stem,
+                           renders=tuple(args.score_renders))
         except Exception as exc:  # noqa: BLE001
             log.warning("score engraving failed (%s); bundle ships without a score", exc)
 
@@ -481,6 +493,8 @@ def _engrave_score(
     tempo_beats: "tb_mod.TempoBeats",
     key_estimate: "key_mod.KeyEstimate",
     project_stem: str,
+    *,
+    renders: tuple[str, ...] = ("pdf", "mscz"),
 ) -> None:
     """Quantize → MusicXML → Verovio SVG → (opportunistic) MuseScore renders.
 
@@ -517,10 +531,14 @@ def _engrave_score(
         else:
             log.warning("score %s render produced nothing (MuseScore rejected the score)", label)
 
-    _try("PDF",   lambda: render_pdf(xml_path, bundle_dir / "score.pdf"))
-    _try("MSCZ",  lambda: render_mscz(xml_path, bundle_dir / "score.mscz"))
-    _try("PNG",   lambda: render_png(xml_path, bundle_dir / "score_png"))
-    _try("audio", lambda: render_audio(xml_path, bundle_dir / "score_preview.mp3", format="mp3"))
+    if "pdf" in renders:
+        _try("PDF",   lambda: render_pdf(xml_path, bundle_dir / "score.pdf"))
+    if "mscz" in renders:
+        _try("MSCZ",  lambda: render_mscz(xml_path, bundle_dir / "score.mscz"))
+    if "png" in renders:
+        _try("PNG",   lambda: render_png(xml_path, bundle_dir / "score_png"))
+    if "audio" in renders:
+        _try("audio", lambda: render_audio(xml_path, bundle_dir / "score_preview.mp3", format="mp3"))
 
 
 def main(argv: list[str] | None = None) -> int:
