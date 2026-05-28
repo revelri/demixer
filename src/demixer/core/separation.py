@@ -12,13 +12,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import soundfile as sf
 import torch
 
 from demixer.core.ingest import IngestedAudio
+
+if TYPE_CHECKING:
+    from demixer.core.loop_detect import LoopDetection
 
 ModelName = Literal["htdemucs", "htdemucs_ft", "htdemucs_6s"]
 
@@ -140,6 +143,77 @@ _STEM_FORMAT_SPEC: dict[str, tuple[str, str]] = {
     "float": (".wav",  "FLOAT"),
     "flac":  (".flac", "PCM_24"),  # FLAC supports up to 24-bit losslessly
 }
+
+
+def separate_loop_aware(
+    audio: IngestedAudio,
+    model_name: ModelName = "htdemucs",
+    *,
+    prefer_cuda: bool = True,
+    shifts: int = 1,
+    overlap: float = 0.25,
+    roformer_vocals: bool = False,
+    min_confidence: float = 0.92,
+) -> tuple[SeparationResult, LoopDetection | None]:
+    """Run Demucs on a single loop period and tile its stems back to full length.
+
+    Falls back transparently to a full `separate()` call when the input does
+    not look like a tight loop (most music). When a loop *is* detected, only
+    one period plus a small leading context window is fed to Demucs — the
+    other (N−1) periods are reconstructed by tiling, cutting separation cost
+    by ~N for loop-heavy corpora.
+
+    Returns `(SeparationResult, LoopDetection | None)`; the second element is
+    None when no loop was detected (and `separate` was called normally).
+    """
+    from demixer.core.loop_detect import detect_loop_period
+
+    detection = detect_loop_period(
+        audio.samples, audio.sample_rate, min_confidence=min_confidence,
+    )
+    if detection is None or detection.n_repeats < 2:
+        return separate(
+            audio, model_name=model_name, prefer_cuda=prefer_cuda,
+            shifts=shifts, overlap=overlap, roformer_vocals=roformer_vocals,
+        ), None
+
+    # Take one period of audio and run separation on it. We deliberately do not
+    # include trailing context here — Demucs is internally chunked with overlap,
+    # and the input is genuinely periodic by hypothesis, so the first period
+    # already has the same statistics as every later one.
+    period = detection.period_samples
+    one_period_samples = audio.samples[:, :period].copy()
+    n_full = audio.samples.shape[-1]
+
+    period_audio = IngestedAudio(
+        samples=one_period_samples,
+        sample_rate=audio.sample_rate,
+        duration_s=period / audio.sample_rate,
+        source_path=audio.source_path,
+        sha256=audio.sha256,
+        integrated_lufs_before=audio.integrated_lufs_before,
+        integrated_lufs_after=audio.integrated_lufs_after,
+    )
+    short = separate(
+        period_audio, model_name=model_name, prefer_cuda=prefer_cuda,
+        shifts=shifts, overlap=overlap, roformer_vocals=roformer_vocals,
+    )
+
+    tiled_stems: dict[str, np.ndarray] = {}
+    for name, stem in short.stems.items():
+        # Truncate the per-period stem to exactly `period` samples in case of
+        # off-by-one inside Demucs, then tile and trim to original length.
+        per = stem[:, :period]
+        n_repeats = (n_full + period - 1) // period
+        tiled = np.tile(per, (1, n_repeats))[:, :n_full]
+        tiled_stems[name] = tiled.astype(np.float32, copy=False)
+
+    return SeparationResult(
+        stems=tiled_stems,
+        sample_rate=audio.sample_rate,
+        model=f"{short.model}+loop-{detection.n_repeats}x",
+        device=short.device,
+    ), detection
 
 
 def write_stems(

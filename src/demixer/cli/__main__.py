@@ -43,7 +43,7 @@ from demixer.core.score.render import (
     render_png,
     render_svg,
 )
-from demixer.core.separation import STEM_NAMES, separate, write_stems
+from demixer.core.separation import STEM_NAMES, separate, separate_loop_aware, write_stems
 from demixer.core.transcription.drums import transcribe_drums
 from demixer.core.transcription.pitched import (
     InstrumentHint,
@@ -120,6 +120,14 @@ def _build_parser() -> argparse.ArgumentParser:
              "MSCZ alone cover viewing and editing; 'png' duplicates the PDF "
              "as ~1 MB raster pages and 'audio' synthesizes a low-fi MP3 "
              "preview — opt in only when you actually need them",
+    )
+    proc.add_argument(
+        "--detect-loops",
+        action="store_true",
+        help="detect loop period via autocorrelation and run Demucs on a "
+             "single period (tiling the stems back to full length). Cuts "
+             "separation cost by ~N for loop-heavy corpora; falls back to a "
+             "full separate() pass when the input is not a tight loop",
     )
     proc.add_argument(
         "--skip-projects-if-single-stem",
@@ -215,7 +223,18 @@ def cmd_process(args: argparse.Namespace) -> int:
     if "separate" not in skip:
         log.info("separating stems with %s%s (this is the slow part)", args.model,
                  " + BS-RoFormer vocals" if args.roformer_vocals else "")
-        result = separate(audio, model_name=args.model, roformer_vocals=args.roformer_vocals)
+        if args.detect_loops:
+            result, loop = separate_loop_aware(
+                audio, model_name=args.model, roformer_vocals=args.roformer_vocals,
+            )
+            if loop is not None:
+                log.info(
+                    "loop detected: period=%.3fs × %d repeats (autocorr=%.3f) — "
+                    "separated 1 period, tiled the rest",
+                    loop.period_s, loop.n_repeats, loop.confidence,
+                )
+        else:
+            result = separate(audio, model_name=args.model, roformer_vocals=args.roformer_vocals)
         sep_label = result.model
         sep_stems = result.stems
         stem_paths = write_stems(result, out_dir / "stems", stem_format=args.stem_format)
