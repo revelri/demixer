@@ -146,10 +146,17 @@ def zip_bundle(bundle_dir: str | Path) -> Path:
     """
     bundle_dir = Path(bundle_dir)
     zip_path = bundle_dir.with_suffix(".demixer")
+    # File extensions whose payload is already compressed — re-deflating wastes
+    # CPU for ~0 % gain. Store them; deflate the rest.
+    _PRECOMPRESSED = {".flac", ".mp3", ".ogg", ".opus", ".m4a", ".aac",
+                      ".png", ".jpg", ".jpeg", ".webp",
+                      ".dawproject", ".mscz", ".demixer", ".zip"}
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for p in sorted(bundle_dir.rglob("*")):
             if p.is_file():
-                z.write(p, arcname=p.relative_to(bundle_dir))
+                comp = (zipfile.ZIP_STORED if p.suffix.lower() in _PRECOMPRESSED
+                        else zipfile.ZIP_DEFLATED)
+                z.write(p, arcname=p.relative_to(bundle_dir), compress_type=comp)
     return zip_path
 
 

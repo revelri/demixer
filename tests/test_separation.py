@@ -23,6 +23,36 @@ from demixer.core.separation import (
 )
 
 
+@pytest.mark.parametrize("fmt,ext,subtype", [
+    ("pcm24", ".wav",  "PCM_24"),
+    ("pcm16", ".wav",  "PCM_16"),
+    ("float", ".wav",  "FLOAT"),
+    ("flac",  ".flac", "PCM_24"),
+])
+def test_write_stems_respects_stem_format(tmp_path: Path, fmt, ext, subtype) -> None:
+    sr = 44100
+    n = sr // 2
+    rng = np.random.default_rng(0)
+    loud = rng.standard_normal((2, n), dtype=np.float32) * 0.3
+    result = SeparationResult(
+        stems={"other": loud}, sample_rate=sr, model="htdemucs", device="cpu",
+    )
+    written = write_stems(result, tmp_path / "stems", stem_format=fmt)
+    p = written["other"]
+    assert p.suffix == ext, f"{fmt}: expected {ext}, got {p.suffix}"
+    info = sf.info(str(p))
+    assert info.subtype == subtype
+
+
+def test_write_stems_rejects_unknown_format(tmp_path: Path) -> None:
+    result = SeparationResult(
+        stems={"other": np.ones((2, 1024), dtype=np.float32)},
+        sample_rate=44100, model="htdemucs", device="cpu",
+    )
+    with pytest.raises(ValueError, match="unknown stem_format"):
+        write_stems(result, tmp_path / "stems", stem_format="foo")  # type: ignore[arg-type]
+
+
 def test_write_stems_skips_silent_sources(tmp_path: Path) -> None:
     """Silent stems (peak < −40 dBFS) must not be written to disk — otherwise
     they balloon every downstream DAW project and the .demixer archive."""

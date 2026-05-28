@@ -111,6 +111,14 @@ def _build_parser() -> argparse.ArgumentParser:
              "triads-only in-env (default: %(default)s)",
     )
     proc.add_argument(
+        "--stem-format",
+        choices=["pcm24", "pcm16", "float", "flac"],
+        default="pcm24",
+        help="on-disk stem container/precision (default: %(default)s). "
+             "'flac' yields the smallest archive; 'float' preserves bit-exact "
+             "Demucs output if you plan to re-feed stems into other ML models",
+    )
+    proc.add_argument(
         "--drums",
         choices=["spectral", "adtof"],
         default="spectral",
@@ -172,7 +180,7 @@ def cmd_process(args: argparse.Namespace) -> int:
         result = separate(audio, model_name=args.model, roformer_vocals=args.roformer_vocals)
         sep_label = result.model
         sep_stems = result.stems
-        stem_paths = write_stems(result, out_dir / "stems")
+        stem_paths = write_stems(result, out_dir / "stems", stem_format=args.stem_format)
         log.info("wrote %d stems to %s", len(stem_paths), out_dir / "stems")
     else:
         log.warning("--skip separate: no stems will be produced")

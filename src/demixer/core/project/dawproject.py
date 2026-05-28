@@ -180,8 +180,12 @@ def write_dawproject(
         out_path = out_path.with_suffix(".dawproject")
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Map stem name → path inside the zip
-    audio_paths_in_zip = {t.name: f"audio/{t.name}.wav" for t in tracks}
+    # Map stem name → path inside the zip. Preserve the source extension so
+    # FLAC stems round-trip as FLAC instead of being relabeled .wav.
+    audio_paths_in_zip = {
+        t.name: f"audio/{t.name}{Path(t.wav_path).suffix or '.wav'}"
+        for t in tracks
+    }
 
     project_xml = _build_project_xml(tracks, tempo, duration_s, audio_paths_in_zip)
     metadata_xml = _build_metadata_xml(project_name)
@@ -190,6 +194,10 @@ def write_dawproject(
         z.writestr("project.xml", _pretty(project_xml))
         z.writestr("metadata.xml", _pretty(metadata_xml))
         for t in tracks:
-            z.write(t.wav_path, arcname=audio_paths_in_zip[t.name])
+            # FLAC payload is already compressed — re-DEFLATEing wastes CPU for
+            # zero gain. Store FLAC; deflate PCM.
+            comp = (zipfile.ZIP_STORED if Path(t.wav_path).suffix.lower() == ".flac"
+                    else zipfile.ZIP_DEFLATED)
+            z.write(t.wav_path, arcname=audio_paths_in_zip[t.name], compress_type=comp)
 
     return out_path
