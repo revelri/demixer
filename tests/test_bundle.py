@@ -193,3 +193,35 @@ def test_zip_bundle_captures_files_added_after_core_write(tmp_path: Path, popula
     assert {"manifest.json", "analysis.json"} <= names
     assert {"song.rpp", "song.dawproject", "score.musicxml", "score/page-01.svg"} <= names
     assert {f"stems/{s}.wav" for s in ("vocals", "bass", "other")} <= names
+
+
+def test_compact_archive_drops_stems_when_dawproject_present(
+    tmp_path: Path, populated_inputs,
+) -> None:
+    stems, midis = populated_inputs
+    bundle_dir, _ = write_bundle(tmp_path / "out", _fake_meta(), stems, midis, zip_output=False)
+    (bundle_dir / "song.dawproject").write_bytes(b"PK\x03\x04fake")
+
+    zip_path = zip_bundle(bundle_dir, archive_stems=False)
+    with zipfile.ZipFile(zip_path) as z:
+        names = set(z.namelist())
+    assert not any(n.startswith("stems/") for n in names), \
+        "loose stems must be excluded from a compact archive when a dawproject is present"
+    assert "song.dawproject" in names
+    assert {"manifest.json", "analysis.json"} <= names
+
+
+def test_compact_archive_keeps_stems_when_no_dawproject(
+    tmp_path: Path, populated_inputs,
+) -> None:
+    """If no dawproject is in the bundle, stems must stay in the archive even
+    when archive_stems=False — otherwise RPP / FL stem references would dangle."""
+    stems, midis = populated_inputs
+    bundle_dir, _ = write_bundle(tmp_path / "out", _fake_meta(), stems, midis, zip_output=False)
+    # No .dawproject written
+
+    zip_path = zip_bundle(bundle_dir, archive_stems=False)
+    with zipfile.ZipFile(zip_path) as z:
+        names = set(z.namelist())
+    assert any(n.startswith("stems/") for n in names), \
+        "stems must still be archived when no dawproject is present"

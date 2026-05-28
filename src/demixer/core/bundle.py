@@ -137,12 +137,20 @@ def write_bundle(
     return bundle_dir, zip_path
 
 
-def zip_bundle(bundle_dir: str | Path) -> Path:
+def zip_bundle(bundle_dir: str | Path, *, archive_stems: bool = True) -> Path:
     """Zip the entire bundle directory into a sibling `.demixer` archive.
 
     Call this AFTER all artifacts (stems, MIDI, analysis, DAW projects, score)
     have been written so the single-file bundle is complete. Re-running it
     overwrites any earlier partial archive.
+
+    `archive_stems=False` excludes the loose `stems/` subtree from the archive
+    *iff* a `.dawproject` is present in the bundle — the dawproject already
+    embeds the same stem audio, so including the loose copy duplicates it
+    (typically the dominant cost of the archive). Loose stems are kept on
+    disk in the bundle dir either way; this only affects the zipped form.
+    Falls back to including stems when no dawproject exists, so RPP / FL
+    Studio projects extracted from the archive still resolve their audio.
     """
     bundle_dir = Path(bundle_dir)
     zip_path = bundle_dir.with_suffix(".demixer")
@@ -151,12 +159,20 @@ def zip_bundle(bundle_dir: str | Path) -> Path:
     _PRECOMPRESSED = {".flac", ".mp3", ".ogg", ".opus", ".m4a", ".aac",
                       ".png", ".jpg", ".jpeg", ".webp",
                       ".dawproject", ".mscz", ".demixer", ".zip"}
+
+    has_dawproject = any(bundle_dir.glob("*.dawproject"))
+    skip_stems = (not archive_stems) and has_dawproject
+
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for p in sorted(bundle_dir.rglob("*")):
-            if p.is_file():
-                comp = (zipfile.ZIP_STORED if p.suffix.lower() in _PRECOMPRESSED
-                        else zipfile.ZIP_DEFLATED)
-                z.write(p, arcname=p.relative_to(bundle_dir), compress_type=comp)
+            if not p.is_file():
+                continue
+            rel = p.relative_to(bundle_dir)
+            if skip_stems and rel.parts and rel.parts[0] == "stems":
+                continue
+            comp = (zipfile.ZIP_STORED if p.suffix.lower() in _PRECOMPRESSED
+                    else zipfile.ZIP_DEFLATED)
+            z.write(p, arcname=rel, compress_type=comp)
     return zip_path
 
 

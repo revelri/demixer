@@ -111,6 +111,14 @@ def _build_parser() -> argparse.ArgumentParser:
              "triads-only in-env (default: %(default)s)",
     )
     proc.add_argument(
+        "--compact-archive",
+        action="store_true",
+        help="when zipping the .demixer archive, drop the loose stems/ subtree "
+             "if a .dawproject is present (the dawproject already embeds the "
+             "same audio). Cuts archive size ~50%% for the typical 4-stem run. "
+             "Loose stems remain on disk in the bundle dir.",
+    )
+    proc.add_argument(
         "--stem-format",
         choices=["pcm24", "pcm16", "float", "flac"],
         default="pcm24",
@@ -400,7 +408,7 @@ def cmd_process(args: argparse.Namespace) -> int:
     # Zip last, so the single-file .demixer contains everything (stems, MIDI,
     # analysis, DAW projects, and the score) — not just the core written above.
     if "zip" not in skip:
-        zip_path = zip_bundle(bundle_dir)
+        zip_path = zip_bundle(bundle_dir, archive_stems=not args.compact_archive)
         log.info("bundle archive: %s", zip_path)
 
     return 0
