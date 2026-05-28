@@ -122,6 +122,15 @@ def _build_parser() -> argparse.ArgumentParser:
              "preview — opt in only when you actually need them",
     )
     proc.add_argument(
+        "--skip-projects-if-single-stem",
+        action="store_true",
+        help="if only one stem survives the post-separation silence filter, "
+             "skip the multi-track DAW exports (rpp / dawproject / flstudio). "
+             "A one-track DAW project of an isolated instrument is rarely "
+             "more useful than the original source — the bundle still ships "
+             "stems, MIDI, score, and harmony",
+    )
+    proc.add_argument(
         "--midi-hint",
         metavar="PATH|auto",
         default=None,
@@ -355,6 +364,16 @@ def cmd_process(args: argparse.Namespace) -> int:
     # also written, so the single-file .demixer archive is complete.
     bundle_dir, _ = write_bundle(out_dir, meta, stem_paths, midi_paths, zip_output=False)
     log.info("bundle dir ready: %s", bundle_dir)
+
+    # Collapse multi-track DAW exports when only one stem survived separation —
+    # a one-track project of an isolated instrument is rarely more useful than
+    # the source, and writing rpp/dawproject/flp + the embedded audio is the
+    # bulk of bundle cost when there's nothing to spatialize.
+    if len(stem_paths) == 1 and args.skip_projects_if_single_stem:
+        lone = next(iter(stem_paths))
+        log.info("single non-silent stem (%s); skipping multi-track DAW exports "
+                 "(--skip-projects-if-single-stem)", lone)
+        skip.update({"rpp", "dawproject", "flstudio"})
 
     if stem_paths and ("rpp" not in skip or "dawproject" not in skip or "flstudio" not in skip):
         stem_tracks_rpp = [
