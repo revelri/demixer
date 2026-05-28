@@ -15,7 +15,33 @@ import pytest
 import soundfile as sf
 
 from demixer.core.ingest import ingest
-from demixer.core.separation import STEM_NAMES, separate, write_stems
+from demixer.core.separation import (
+    STEM_NAMES,
+    SeparationResult,
+    separate,
+    write_stems,
+)
+
+
+def test_write_stems_skips_silent_sources(tmp_path: Path) -> None:
+    """Silent stems (peak < −40 dBFS) must not be written to disk — otherwise
+    they balloon every downstream DAW project and the .demixer archive."""
+    sr = 44100
+    n = sr // 2  # 0.5 s
+    rng = np.random.default_rng(0)
+    loud = rng.standard_normal((2, n), dtype=np.float32) * 0.3  # well above 0.01
+    silence = np.zeros((2, n), dtype=np.float32)
+    near_silence = rng.standard_normal((2, n), dtype=np.float32) * 1e-5  # ~−100 dBFS
+    result = SeparationResult(
+        stems={"vocals": silence, "drums": near_silence,
+               "bass": silence, "other": loud},
+        sample_rate=sr, model="htdemucs", device="cpu",
+    )
+    written = write_stems(result, tmp_path / "stems")
+    assert set(written) == {"other"}
+    assert written["other"].exists()
+    for name in ("vocals", "drums", "bass"):
+        assert not (tmp_path / "stems" / f"{name}.wav").exists()
 
 
 def test_stem_names_match_variants() -> None:

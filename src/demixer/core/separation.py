@@ -120,12 +120,28 @@ def separate(
     )
 
 
+# Stems whose peak amplitude is below this are treated as empty. Demucs zeroes
+# out absent sources (e.g. drums on a vocal-only track), so writing them is pure
+# I/O waste — a 3-minute float32 stereo stem of silence is ~60 MB on disk and
+# the same bytes again inside every downstream DAW project. −40 dBFS sits well
+# above dither/noise-floor and well below any musically present part.
+_SILENT_STEM_PEAK = 0.01
+
+
 def write_stems(result: SeparationResult, out_dir: str | Path) -> dict[str, Path]:
-    """Write each stem to `out_dir/<stem>.wav` (float32 WAV). Returns name → path."""
+    """Write each non-silent stem to `out_dir/<stem>.wav` (float32 WAV).
+
+    Silent stems (peak < −40 dBFS) are skipped — they would otherwise propagate
+    full-size copies of silence into every DAW project and the .demixer archive.
+    Returns name → path for the stems that were actually written.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     written: dict[str, Path] = {}
     for name, samples in result.stems.items():
+        peak = float(np.max(np.abs(samples))) if samples.size else 0.0
+        if peak < _SILENT_STEM_PEAK:
+            continue
         path = out_dir / f"{name}.wav"
         sf.write(path, samples.T, result.sample_rate, subtype="FLOAT")
         written[name] = path
