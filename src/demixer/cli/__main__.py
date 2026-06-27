@@ -105,10 +105,11 @@ def _build_parser() -> argparse.ArgumentParser:
     proc.add_argument(
         "--chords",
         choices=["autochord", "btc"],
-        default="autochord",
-        help="chord recognition engine. 'btc' uses the BTC large-vocab transformer "
-             "(170 chords incl. 7ths/extensions) via the .venv-btc worker; 'autochord' is "
-             "triads-only in-env (default: %(default)s)",
+        default="btc",
+        help="chord recognition engine. 'btc' (default) uses the BTC large-vocab transformer "
+             "(170 chords incl. 7ths/extensions) via the .venv-btc worker — accuracy-first "
+             "(+6-7%% majmin/thirds vs Isophonics ground truth); 'autochord' is the fast "
+             "triads-only in-env path (default: %(default)s)",
     )
     proc.add_argument(
         "--score-renders",
