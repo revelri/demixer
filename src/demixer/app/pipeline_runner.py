@@ -42,7 +42,7 @@ class RunOptions:
     output_dir: Path
     model: str = "htdemucs"
     transcriber: str = "basic-pitch"
-    chords: str = "autochord"
+    chords: str = "btc"
     drums: str = "spectral"
     roformer_vocals: bool = False
     harmony: bool = False
